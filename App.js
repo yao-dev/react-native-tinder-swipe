@@ -1,12 +1,15 @@
 import { AntDesign, Entypo, FontAwesome } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import React from 'react';
-import { Animated, Dimensions, Easing, FlatList, PanResponder, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Dimensions, Easing, LayoutAnimation, PanResponder, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, UIManager, View } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
-const dislikePart = width / 4;
-const likePart = width - dislikePart;
-const swipeDistRequired = width / 3;
+
+if (Platform.OS === 'android') {
+  if (UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+}
 
 const getRandomColor = () => {
   const min = 50;
@@ -18,64 +21,71 @@ const getRandomColor = () => {
   return `rgba(${r},${g},${b},1)`;
 };
 
+const cards = Array.from(Array(10).keys(), (value) => ({
+  value,
+  bg: getRandomColor()
+}))
 
 export default function App() {
+  const [swipeCards, setSwipeCards] = useState(cards);
+  const [swiping, setSwiping] = useState(false);
   const valueXY = new Animated.ValueXY();
+
   const Pan = PanResponder.create({
-      // Ask to be the responder:
       onStartShouldSetPanResponder: (evt, gestureState) => true,
       onStartShouldSetPanResponderCapture: (evt, gestureState) => true,
       onMoveShouldSetPanResponder: (evt, gestureState) => true,
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => true,
-
       onPanResponderGrant: (evt, gestureState) => {
-        // The gesture has started. Show visual feedback so the user knows
-        // what is happening!
-        // gestureState.d{x,y} will be set to zero now
+        valueXY.setValue({ x: 0, y: 0 })
+        setSwiping(true)
       },
       onPanResponderMove: (evt, gestureState) => {
-        // The most recent move distance is gestureState.move{X,Y}
-        // The accumulated gesture distance since becoming responder is
-        // gestureState.d{x,y}
-        Animated.event([{
-          x: valueXY.x,
-          y: valueXY.y,
-        }])({
-          x:  gestureState.moveX - (this.cardWidth / 2),
-          y: gestureState.moveY - (this.cardHeight / 2)
+        valueXY.setValue({
+          x: gestureState.dx,
+          y: gestureState.dy,
         })
       },
       onPanResponderTerminationRequest: (evt, gestureState) => true,
       onPanResponderRelease: (evt, gestureState) => {
-        // The user has released all touches while this view is the
-        // responder. This typically means a gesture has succeeded
-        distanceX = gestureState.dx < 0 ? gestureState.dx * -1 : gestureState.dx;
-        if (gestureState.moveX < dislikePart) {
-          console.log('dislike', gestureState)
-          if (distanceX > swipeDistRequired) {
-            return dislike()
-          }
-        }
-
-        if (gestureState.moveX > likePart) {
-          console.log('like', gestureState)
-          if (distanceX > swipeDistRequired) {
-            return like()
-          }
-        }
-
-        getCardBack(100)
+        swipeOnRelease(gestureState)
       },
       onPanResponderTerminate: (evt, gestureState) => {
-        // Another component has become the responder, so this gesture
-        // should be cancelled
+        swipeOnRelease(gestureState)
       },
-      onShouldBlockNativeResponder: (evt, gestureState) => {
-        // Returns whether this component should block native components from becoming the JS
-        // responder. Returns true by default. Is currently only supported on android.
-        return true;
-      },
+      onShouldBlockNativeResponder: (evt, gestureState) => true,
   });
+
+  const getXOnMove = (gestureState) => {
+    const x = (gestureState.x0 - gestureState.moveX) * -1;
+    return x;
+  }
+
+  const getYOnMove = (gestureState) => {
+    const y = (gestureState.y0 - gestureState.moveY) * -1;
+    return y;
+  }
+
+  const swipeOnRelease = (gestureState) => {
+    const x = getXOnMove(gestureState);
+
+    const shouldSwipeNext = Math.abs(x) > this.cardWidth / 3;
+
+    if (!shouldSwipeNext) {
+      return getCardBack(100)
+    }
+
+    // should dislike
+    if (Math.sign(x) < 0) return dislike();
+
+    // should like
+    return like();
+  }
+
+  const removeFirstCard = () => {
+    // setLastIndexRemoved(swipeCards[0])
+    // setSwipeCards(swipeCards.slice(1))
+  }
 
   const dislike = () => {
     this.lastPosition = -(width * 2)
@@ -83,7 +93,9 @@ export default function App() {
       toValue: -(width * 2),
       easing: Easing.ease,
       duration: 500,
-    }).start();
+    }).start(() => {
+      removeFirstCard()
+    });
   }
 
   const getCardBack = (duration = 500) => {
@@ -107,8 +119,21 @@ export default function App() {
       toValue: width * 2,
       easing: Easing.ease,
       duration: 500,
-    }).start();
+    }).start(() => {
+      removeFirstCard()
+    });
   }
+
+  useEffect(() => {
+    console.log(swipeCards)
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
+    Animated.timing(valueXY, {
+      toValue: 0,
+      easing: Easing.ease,
+      duration: 2000,
+    }).start();
+    // valueXY.setValue({ x: 0, y: 0 })
+  }, [swipeCards])
 
   const t = valueXY.x.interpolate({
     inputRange: [0, 100],
@@ -124,6 +149,85 @@ export default function App() {
     inputRange: [-100, -50, 0],
     outputRange: [1, 0.5, 0],
   })
+
+  const cardBehindWidth = valueXY.x.interpolate({
+    inputRange: [-100, 0, 100],
+    outputRange: [width - 20, width - 50, width - 20],
+    extrapolate: 'clamp'
+  });
+
+  const cardBehindHeight = valueXY.x.interpolate({
+    inputRange: [-100, 0, 100],
+    outputRange: [height - 130, height - 160, height - 130],
+    extrapolate: 'clamp'
+  })
+
+  const renderItem = (item, extraStyle = {}) => {
+    if (!item) return;
+    const isAbsolute = extraStyle.position === 'absolute';
+    {/* PROFILE CARD */}
+    return (
+      <Animated.View
+        {...Pan.panHandlers}
+        onLayout={(e) => {
+          this.cardHeight = e.nativeEvent.layout.height;
+          this.cardWidth = e.nativeEvent.layout.width;
+        }}
+        style={[
+          styles.card, {
+            backgroundColor: item.bg,
+            zIndex: 98,
+            top: 0,
+            left: 0,
+            position: 'relative'
+          },
+          extraStyle
+        ]}
+      >
+        <Text>{item.value}</Text>
+        {/* NOPE TEXT */}
+        {isAbsolute ? (
+          <Animated.Text
+            style={{
+              position: 'absolute',
+              top: 40,
+              right: 30,
+              transform: [{ rotate: '7deg' }],
+              fontSize: 25,
+              fontWeight: 'bold',
+              padding: 10,
+              color: 'red',
+              borderWidth: 4,
+              borderColor: 'red',
+              opacity: nopeOpacity
+            }}
+          >
+            NOPE
+          </Animated.Text>
+        ) : null }
+        {/* LIKE TEXT */}
+        {isAbsolute ? (
+          <Animated.Text
+            style={{
+              position: 'absolute',
+              top: 40,
+              left: 30,
+              transform: [{ rotate: '-7deg' }],
+              fontSize: 25,
+              fontWeight: 'bold',
+              padding: 10,
+              color: 'green',
+              borderWidth: 4,
+              borderColor: 'green',
+              opacity: likeOpacity
+            }}
+          >
+            LIKE
+          </Animated.Text>
+        ) : null }
+      </Animated.View>
+    )
+  }
 
   return (
     <View ref={(node) => this.container = node} style={styles.container}>
@@ -155,72 +259,24 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      <ScrollView
         contentContainerStyle={styles.flatList}
-        data={[0]}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={({ index }) => {
-          const firstCard = index === 0;
-
-          return (
-            <Animated.View
-              {...Pan.panHandlers}
-              onLayout={(e) => {
-                this.cardHeight = e.nativeEvent.layout.height;
-                this.cardWidth = e.nativeEvent.layout.width;
-              }}
-              style={[
-                styles.card,
-                { backgroundColor: getRandomColor() },
-                {position: 'relative',
-                zIndex: 1,},
-                firstCard && {
-                  ...valueXY.getLayout(),
-                  transform: [{ rotate: t }],
-                  position: 'relative',
-                  zIndex: 99,
-                },
-              ]}
-            >
-              <View ref={(node) => this.cardRef = node} style={{ width: '100%', height: '100%' }} />
-              <Animated.Text
-                style={{
-                  position: 'absolute',
-                  top: 40,
-                  right: 30,
-                  transform: [{ rotate: '7deg' }],
-                  fontSize: 25,
-                  fontWeight: 'bold',
-                  padding: 10,
-                  color: 'red',
-                  borderWidth: 4,
-                  borderColor: 'red',
-                  opacity: nopeOpacity
-                }}
-              >
-                NOPE
-              </Animated.Text>
-              <Animated.Text
-                style={{
-                  position: 'absolute',
-                  top: 40,
-                  left: 30,
-                  transform: [{ rotate: '-7deg' }],
-                  fontSize: 25,
-                  fontWeight: 'bold',
-                  padding: 10,
-                  color: 'green',
-                  borderWidth: 4,
-                  borderColor: 'green',
-                  opacity: likeOpacity
-                }}
-              >
-                LIKE
-              </Animated.Text>
-            </Animated.View>
-          )
-        }}
-      />
+        scrollEnabled={false}
+        renderItem={renderItem}
+      >
+        <View style={styles.cardContainer}>
+          {renderItem(swipeCards[1], {
+            width: cardBehindWidth,
+            height: cardBehindHeight
+          })}
+          {renderItem(swipeCards[0], {
+            position: 'absolute',
+            zIndex: 99,
+            ...valueXY.getLayout(),
+            transform: [{ rotate: t }],
+          })}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -229,21 +285,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    marginTop: Constants.statusBarHeight,
+    paddingTop: Constants.statusBarHeight,
   },
   flatList: {
     position: 'relative',
+    zIndex: 3,
     width,
     height,
-    // justifyContent: 'center',
-    // alignItems: 'center',
+  },
+  cardContainer: {
+    zIndex: 3,
+    width: width,
+    height: height - 100,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   card: {
-    // position: 'absolute',
     zIndex: 3,
     width: width - 20,
     height: height - 130,
-    backgroundColor: 'black',
     borderRadius: 10,
     marginVertical: 10,
     marginHorizontal: 10,
@@ -275,5 +335,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: 'black',
+    shadowOffset: {
+      width: 2,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
   }
 });
